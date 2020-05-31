@@ -1,4 +1,6 @@
-﻿using System.Net;
+﻿using System.Collections.Generic;
+using System.IO;
+using System.Net;
 using UnityEditor;
 using UnityEngine;
 
@@ -17,6 +19,39 @@ namespace Snail
             }
         }
 
+
+
+        public static void downloadToFile(string url, string file)
+        {
+            using (WebClient client = new WebClient())
+            {
+                client.Headers.Add(HttpRequestHeader.UserAgent, "VrcPackageManager");
+                Debug.Log("Downloading file " + file + " from " + url);
+                byte[] data = client.DownloadData(url);
+                File.WriteAllBytes(file, data);
+            }
+        }
+
+        // static bool installing = false;
+        // static Queue<Package> toInstall = new Queue<Package>();
+        public static void DownloadAndRun(string url)
+        {
+            string file = Path.Combine(Application.dataPath, Path.GetFileName(url));
+            downloadToFile(url, file);
+            Debug.Log("Executing " + file);
+            if (file.EndsWith("unitypackage"))
+            {
+                AssetDatabase.ImportPackage(file, false);
+            }
+            else
+            {
+                var proc = new System.Diagnostics.Process();
+                proc.StartInfo.FileName = file;
+                // proc.Exited += (a, b) => installing = false;
+                proc.Start();
+            }
+        }
+
         // Add menu item named "My Window" to the Window menu
         [MenuItem("Tools/Snail/Package Manager")]
         public static void ShowWindow()
@@ -29,30 +64,47 @@ namespace Snail
             GUILayout.Label("SDK2 Packages", EditorStyles.boldLabel);
             foreach (var pkg in packages2)
                 pkg.OnGUI();
-                
+
             GUILayout.Label("SDK3 Packages", EditorStyles.boldLabel);
             foreach (var pkg in packages3)
                 pkg.OnGUI();
-            
+            // if (GUILayout.Button("[ALL IN SECTION]"))
+            //     foreach (var pkg in packages3)
+            //         toInstall.Enqueue(pkg);
+
+            // if (toInstall.Count > 0 && !installing)
+            // {
+            //     Package pkg = toInstall.Dequeue();
+            //     Debug.Log("Auto installing: " + pkg.GetName());
+            //     pkg.Install();
+            // }
         }
+
+
+
         public static GUILayoutOption[] options = null;
         public abstract class Package
         {
             public abstract void FetchInfo();
-            public abstract void ShowGui();
             public abstract string GetName();
-            private bool show;
+            public abstract string GetDownload();
             private bool fetched;
             public void OnGUI()
             {
-                show = EditorGUILayout.Foldout(show, GetName());
-                if (!show) return;
+
+                if (GUILayout.Button(GetName()))
+                {
+                    Install();
+                }
+            }
+            public void Install()
+            {
                 if (!fetched)
                 {
                     FetchInfo();
                     fetched = true;
                 }
-                ShowGui();
+                DownloadAndRun(GetDownload());
             }
         }
 
@@ -88,13 +140,7 @@ namespace Snail
             {
                 data = download<VRCStruct>("https://api.vrchat.cloud/api/1/config");
             }
-            public override void ShowGui()
-            {
-                if (GUILayout.Button("Download"))
-                {
-                    Application.OpenURL(data.downloadUrls.sdk2);
-                }
-            }
+            public override string GetDownload() { return data.downloadUrls.sdk2; }
         }
         public class SDK3 : Package
         {
@@ -104,13 +150,7 @@ namespace Snail
             {
                 data = download<VRCStruct>("https://api.vrchat.cloud/api/1/config");
             }
-            public override void ShowGui()
-            {
-                if (GUILayout.Button("Download"))
-                {
-                    Application.OpenURL(data.downloadUrls.sdk3);
-                }
-            }
+            public override string GetDownload() { return data.downloadUrls.sdk3; }
         }
 
         [System.Serializable]
@@ -141,19 +181,14 @@ namespace Snail
                 this.userrepo = userrepo;
             }
             public override string GetName() { return userrepo; }
-            public override void ShowGui()
+            public override string GetDownload()
             {
-                if (GUILayout.Button("Zip File"))
+                if (data.assets.Length > 0)
                 {
-                    Application.OpenURL(data.zipball_url);
+                    return data.assets[0].browser_download_url;
                 }
-                foreach (var asset in data.assets)
-                {
-                    if (GUILayout.Button(asset.name))
-                        Application.OpenURL(asset.browser_download_url);
-                }
+                return data.zipball_url;
             }
         }
-
     }
 }
